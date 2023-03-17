@@ -1,6 +1,9 @@
+import json
+import socket
 from threading import Event
+from time import sleep
 from typing import Optional, Any
-
+import requests
 import paho.mqtt.client as mqtt
 
 # Feel free to add more libraries (e.g.: The REST Client library)
@@ -19,12 +22,17 @@ def send_secret_rest(secret_value: int):
     #
     # Assuming secret_value = 50, then the request will contain the following
     # body: {"value": 50}
-    pass
+
+    resp = requests.post(
+        'http://server/secret_number', json={"value": secret_value}
+    )
+    return resp.status_code == 200 and resp.text == 'OK'
 
 
 def on_mqtt_connect(client, userdata, flags, rc):
     print('Connected to MQTT broker')
-    mqtt_connection_event.set()
+    receive_secret()
+    # mqtt_connection_event.set()
 
 
 def on_mqtt_message(client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage):
@@ -32,7 +40,11 @@ def on_mqtt_message(client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage):
     # we are interested just on the value) and send this value to the REST
     # server... or maybe the sending to REST should be done somewhere else...
     # do you have any idea why?
-    pass
+    data = json.loads(msg.payload)
+    result = send_secret_rest(secret_value=data['value'])
+    resp = requests.get('http://server/secret_correct')
+    if result and resp.text == 'YES':
+        mqtt_connection_event.set()
 
 
 def connect_mqtt() -> mqtt.Client:
@@ -47,13 +59,38 @@ def connect_mqtt() -> mqtt.Client:
     return client
 
 
+def get_status():
+    resp = requests.get('http://server/ready')
+    msg = resp.text
+    resp.raise_for_status()
+    if msg != 'YES':
+        raise ValueError('Server is Not Ready')
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    result = sock.connect_ex(('mqtt-broker', 1883))
+    if result != 0:
+        raise ConnectionError("mqtt broker is not ready")
+    sock.close()
+
+
 def wait_for_server_ready():
     # Implement code to wait until the server is ready, it's up to you how
     # to do that. Our advice: Check the server source code and check if there
     # is anything useful that can help.
     # Hint: If you prefer, feel free to delete this method, use an external
     # tool and incorporate it in the Dockerfile
-    pass
+    while True:
+        try:
+            get_status()
+            print('Server Is Ready')
+            break
+        except Exception as e:
+            print(e)
+        sleep(3)
+
+
+def receive_secret():
+    # We will receive the secret via MQTT to secret/number topic every second
+    mqtt_client.subscribe('secret/number', 0)
 
 
 def main():

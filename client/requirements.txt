@@ -1,3 +1,4 @@
 paho-mqtt==1.6.1
+requests==2.28.2
 
 # You may have to add more libraries
